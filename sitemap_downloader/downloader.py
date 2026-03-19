@@ -1,6 +1,7 @@
 """Download sitemaps from websites, handling sitemap indexes and gzip."""
 
 import gzip
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
@@ -64,23 +65,40 @@ def fetch_url(url: str) -> bytes:
     return resp.content
 
 
-def download_sitemaps(sitemap_url: str, output_dir: Path, _used_names: dict[str, int] | None = None) -> list[Path]:
+def _validate_xml(xml_str: str, source_url: str) -> None:
+    """Validate that XML content is well-formed and is a sitemap."""
+    root = ET.fromstring(xml_str)  # raises ParseError if malformed
+    tag = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+    if tag not in ("sitemapindex", "urlset"):
+        raise ValueError(f"Not a sitemap — root element is <{tag}>, expected <sitemapindex> or <urlset>")
+
+
+def download_sitemaps(
+    sitemap_url: str,
+    output_dir: Path,
+    errors: list[dict] | None = None,
+    _used_names: dict[str, int] | None = None,
+) -> list[Path]:
     """Download all sitemaps from a URL. Handles sitemap indexes recursively.
 
     Args:
         sitemap_url: URL to the sitemap or sitemap index
         output_dir: Directory to save downloaded files (OriginalFiles/)
+        errors: List to collect error dicts (mutated in place)
         _used_names: Internal tracker to avoid filename collisions across locales
 
     Returns:
         List of paths to downloaded sitemap files
     """
+    if errors is None:
+        errors = []
     if _used_names is None:
         _used_names = {}
 
     output_dir.mkdir(parents=True, exist_ok=True)
     content = fetch_url(sitemap_url)
     xml_str = decompress_if_gzip(content)
+    _validate_xml(xml_str, sitemap_url)
 
     if is_sitemap_index(xml_str):
         sub_urls = parse_sitemap_index_urls(xml_str)
@@ -93,9 +111,17 @@ def download_sitemaps(sitemap_url: str, output_dir: Path, _used_names: dict[str,
         for i, url in enumerate(sub_urls, 1):
             print(f"  Downloading [{i}/{len(sub_urls)}]: {url.split('/')[-1]}")
             try:
-                downloaded.extend(download_sitemaps(url, output_dir, _used_names))
+                downloaded.extend(download_sitemaps(url, output_dir, errors, _used_names))
             except Exception as e:
-                print(f"  Warning: failed to download {url}: {e}")
+                error_entry = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "url": url,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "parent_index": sitemap_url,
+                }
+                errors.append(error_entry)
+                print(f"  ERROR: failed to download {url}: {e}")
         return downloaded
     else:
         # Regular sitemap — save it

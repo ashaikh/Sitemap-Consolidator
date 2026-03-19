@@ -1,6 +1,6 @@
 import tarfile
 
-from sitemap_downloader.cli import parse_args, build_paths, load_sites, compress_originals
+from sitemap_downloader.cli import parse_args, build_paths, load_sites, compress_originals, write_errors
 
 
 def test_parse_args_basic():
@@ -32,6 +32,7 @@ def test_build_paths_structure():
     assert str(paths["merged_dir"]).endswith("MergedSitemap")
     assert str(paths["merged_file"]).endswith("example.com-2026-01-01.xml")
     assert str(paths["report"]).endswith("example.com-2026-01-01.md")
+    assert str(paths["errors"]).endswith("errors.txt")
 
 
 def test_load_sites(tmp_path):
@@ -57,3 +58,31 @@ def test_compress_originals(tmp_path):
         names = tar.getnames()
     assert "sitemap1.xml" in names
     assert "sitemap2.xml" in names
+
+
+def test_write_errors(tmp_path):
+    errors = [
+        {
+            "timestamp": "2026-03-18T12:00:00+00:00",
+            "url": "https://example.com/sitemap-broken.xml",
+            "error_type": "ConnectionError",
+            "error": "Connection refused",
+            "parent_index": "https://example.com/sitemap.xml",
+        },
+        {
+            "timestamp": "2026-03-18T12:00:01+00:00",
+            "url": "https://example.com/sitemap-bad.xml",
+            "error_type": "ValueError",
+            "error": "Not a sitemap — root element is <html>",
+            "parent_index": "https://example.com/sitemap.xml",
+        },
+    ]
+    error_path = tmp_path / "errors.txt"
+    write_errors(errors, error_path)
+
+    content = error_path.read_text()
+    assert "2 error(s)" in content
+    assert "sitemap-broken.xml" in content
+    assert "Connection refused" in content
+    assert "Not a sitemap" in content
+    assert "Parent Index" in content

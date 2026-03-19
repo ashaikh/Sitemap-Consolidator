@@ -62,6 +62,7 @@ def build_paths(sitemap_url: str, output_base: str | None, date_str: str | None)
         "merged_dir": base / "MergedSitemap",
         "merged_file": base / "MergedSitemap" / f"{site_name}-{date_str}.xml",
         "report": base / "MergedSitemap" / f"{site_name}-{date_str}.md",
+        "errors": base / "errors.txt",
     }
 
 
@@ -74,6 +75,22 @@ def compress_originals(originals_dir: Path) -> Path:
     # Remove the original XML files
     shutil.rmtree(originals_dir)
     return archive_path
+
+
+def write_errors(errors: list[dict], error_path: Path) -> None:
+    """Write download errors to errors.txt."""
+    error_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(error_path, "w") as f:
+        f.write(f"Sitemap Download Errors — {len(errors)} error(s)\n")
+        f.write("=" * 60 + "\n\n")
+        for i, err in enumerate(errors, 1):
+            f.write(f"[{i}] {err['timestamp']}\n")
+            f.write(f"    URL: {err['url']}\n")
+            f.write(f"    Error Type: {err['error_type']}\n")
+            f.write(f"    Error: {err['error']}\n")
+            if err.get("parent_index"):
+                f.write(f"    Parent Index: {err['parent_index']}\n")
+            f.write("\n")
 
 
 def load_sites(sites_path: str) -> list[str]:
@@ -95,8 +112,17 @@ def process_site(sitemap_url: str, output_base: str | None, date_str: str | None
     print(f"Output: {paths['base']}")
 
     # Step 1: Download
-    downloaded = download_sitemaps(sitemap_url, paths["originals"])
+    errors: list[dict] = []
+    downloaded = download_sitemaps(sitemap_url, paths["originals"], errors)
     print(f"Downloaded {len(downloaded)} sitemap file(s)")
+
+    if errors:
+        write_errors(errors, paths["errors"])
+        print(f"WARNING: {len(errors)} error(s) logged to {paths['errors']}")
+
+    if not downloaded:
+        print("ERROR: No sitemaps downloaded successfully. Skipping merge/analysis.")
+        return
 
     # Step 2: Merge
     total = merge_sitemaps(downloaded, paths["merged_file"])

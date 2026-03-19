@@ -14,7 +14,7 @@ def count_sections(urls: list[str], max_depth: int = 4) -> dict[str, int]:
 
     Args:
         urls: List of full URLs
-        max_depth: Maximum path depth to analyze (default 3)
+        max_depth: Maximum path depth to analyze (default 4)
 
     Returns:
         Dict mapping path prefixes to URL counts
@@ -37,6 +37,15 @@ def count_sections(urls: list[str], max_depth: int = 4) -> dict[str, int]:
     return dict(counts)
 
 
+def count_subdomains(urls: list[str]) -> dict[str, int]:
+    """Count URLs by hostname/subdomain."""
+    counts: dict[str, int] = defaultdict(int)
+    for url in urls:
+        host = urlparse(url).netloc
+        counts[host] += 1
+    return dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
+
+
 def generate_report(urls: list[str], site_name: str) -> str:
     """Generate a markdown analysis report for the given URLs.
 
@@ -48,24 +57,42 @@ def generate_report(urls: list[str], site_name: str) -> str:
         Markdown string with the report
     """
     total = len(urls)
-    counts = count_sections(urls, max_depth=3)
+    counts = count_sections(urls, max_depth=4)
+    subdomain_counts = count_subdomains(urls)
     today = date.today().isoformat()
-
-    # Sort sections: level 1 first, then by count descending
-    level_1 = {k: v for k, v in counts.items() if k.count("/") == 1 and k != "/"}
-    level_1_sorted = sorted(level_1.items(), key=lambda x: x[1], reverse=True)
 
     lines = [
         f"# Sitemap Analysis: {site_name}",
         f"",
         f"**Date:** {today}",
         f"**Total URLs:** {total:,}",
+        f"**Unique Hosts:** {len(subdomain_counts):,}",
         f"",
-        f"## Top-Level Sections",
-        f"",
-        f"| Section | URLs | % of Total |",
-        f"|---------|------|-----------|",
     ]
+
+    # Subdomain breakdown (only show if more than one host)
+    if len(subdomain_counts) > 1:
+        lines.extend([
+            "## Subdomains / Hosts",
+            "",
+            "| Host | URLs | % of Total |",
+            "|------|------|-----------|",
+        ])
+        for host, count in subdomain_counts.items():
+            pct = (count / total) * 100
+            lines.append(f"| `{host}` | {count:,} | {pct:.1f}% |")
+        lines.append("")
+
+    # Top-level path sections
+    level_1 = {k: v for k, v in counts.items() if k.count("/") == 1 and k != "/"}
+    level_1_sorted = sorted(level_1.items(), key=lambda x: x[1], reverse=True)
+
+    lines.extend([
+        "## Top-Level Sections",
+        "",
+        "| Section | URLs | % of Total |",
+        "|---------|------|-----------|",
+    ])
 
     for section, count in level_1_sorted:
         pct = (count / total) * 100
@@ -81,7 +108,6 @@ def generate_report(urls: list[str], site_name: str) -> str:
     lines.extend(["", "## Detailed Breakdown (up to 4 levels)", ""])
 
     for section, _ in level_1_sorted:
-        # Find all sub-sections under this top-level
         sub_sections = {
             k: v for k, v in counts.items()
             if k.startswith(section + "/") and k != section

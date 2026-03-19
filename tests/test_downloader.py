@@ -51,12 +51,41 @@ def _mock_fetch_url(url: str) -> bytes:
 def test_download_sitemaps_creates_files(mock_fetch, tmp_path):
     from sitemap_downloader.downloader import download_sitemaps
 
-    files = download_sitemaps("https://www.example.com/sitemap.xml", tmp_path)
+    errors = []
+    files = download_sitemaps("https://www.example.com/sitemap.xml", tmp_path, errors)
     assert len(files) == 2
     assert all(f.exists() for f in files)
+    assert len(errors) == 0
     # Verify XML content was saved
     content = files[0].read_text()
     assert "<urlset" in content
+
+
+@patch("sitemap_downloader.downloader.fetch_url", side_effect=_mock_fetch_url)
+def test_download_sitemaps_collects_errors_on_failure(mock_fetch, tmp_path):
+    from sitemap_downloader.downloader import download_sitemaps
+
+    def _fail_on_pages(url: str) -> bytes:
+        if "pages" in url:
+            raise ConnectionError("Connection refused")
+        return _mock_fetch_url(url)
+
+    mock_fetch.side_effect = _fail_on_pages
+    errors = []
+    files = download_sitemaps("https://www.example.com/sitemap.xml", tmp_path, errors)
+    assert len(files) == 1  # only products succeeded
+    assert len(errors) == 1
+    assert errors[0]["error_type"] == "ConnectionError"
+    assert "Connection refused" in errors[0]["error"]
+    assert errors[0]["url"] == "https://www.example.com/sitemap-pages.xml.gz"
+
+
+def test_validate_xml_rejects_non_sitemap():
+    from sitemap_downloader.downloader import _validate_xml
+    import pytest
+
+    with pytest.raises(ValueError, match="Not a sitemap"):
+        _validate_xml("<html><body>Not a sitemap</body></html>", "http://example.com")
 
 
 def test_unique_filename_avoids_collisions():
