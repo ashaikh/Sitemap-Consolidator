@@ -4,6 +4,8 @@
 Usage:
     python run.py https://www.example.com/sitemap.xml
     python run.py https://www.example.com/sitemap.xml --output ./output --date 2026-01-01
+    python run.py --sites sites.txt --output ./output
+    python run.py --sites sites.txt --output ./output --date 2026-01-01
 """
 from sitemap_downloader.cli import run
 

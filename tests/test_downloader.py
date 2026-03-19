@@ -57,3 +57,13 @@ def test_download_sitemaps_creates_files(mock_fetch, tmp_path):
     # Verify XML content was saved
     content = files[0].read_text()
     assert "<urlset" in content
+
+
+def test_unique_filename_avoids_collisions():
+    from sitemap_downloader.downloader import _unique_filename
+
+    used = {}
+    assert _unique_filename("https://example.com/sitemap.xml", used) == "sitemap.xml"
+    assert _unique_filename("https://example.com/en-gb/sitemap.xml", used) == "sitemap-1.xml"
+    assert _unique_filename("https://example.com/en-ca/sitemap.xml", used) == "sitemap-2.xml"
+    assert _unique_filename("https://example.com/products.xml", used) == "products.xml"

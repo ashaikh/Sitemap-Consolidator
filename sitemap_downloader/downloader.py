@@ -56,16 +56,20 @@ def fetch_url(url: str) -> bytes:
     return resp.content
 
 
-def download_sitemaps(sitemap_url: str, output_dir: Path) -> list[Path]:
+def download_sitemaps(sitemap_url: str, output_dir: Path, _used_names: dict[str, int] | None = None) -> list[Path]:
     """Download all sitemaps from a URL. Handles sitemap indexes recursively.
 
     Args:
         sitemap_url: URL to the sitemap or sitemap index
         output_dir: Directory to save downloaded files (OriginalFiles/)
+        _used_names: Internal tracker to avoid filename collisions across locales
 
     Returns:
         List of paths to downloaded sitemap files
     """
+    if _used_names is None:
+        _used_names = {}
+
     output_dir.mkdir(parents=True, exist_ok=True)
     content = fetch_url(sitemap_url)
     xml_str = decompress_if_gzip(content)
@@ -73,7 +77,7 @@ def download_sitemaps(sitemap_url: str, output_dir: Path) -> list[Path]:
     if is_sitemap_index(xml_str):
         sub_urls = parse_sitemap_index_urls(xml_str)
         # Save the index file itself
-        index_path = output_dir / _filename_from_url(sitemap_url)
+        index_path = output_dir / _unique_filename(sitemap_url, _used_names)
         index_path.write_text(xml_str, encoding="utf-8")
 
         print(f"  Found sitemap index with {len(sub_urls)} sub-sitemaps")
@@ -81,23 +85,35 @@ def download_sitemaps(sitemap_url: str, output_dir: Path) -> list[Path]:
         for i, url in enumerate(sub_urls, 1):
             print(f"  Downloading [{i}/{len(sub_urls)}]: {url.split('/')[-1]}")
             try:
-                downloaded.extend(download_sitemaps(url, output_dir))
+                downloaded.extend(download_sitemaps(url, output_dir, _used_names))
             except Exception as e:
                 print(f"  Warning: failed to download {url}: {e}")
         return downloaded
     else:
         # Regular sitemap — save it
-        filename = _filename_from_url(sitemap_url)
+        filename = _unique_filename(sitemap_url, _used_names)
         filepath = output_dir / filename
         filepath.write_text(xml_str, encoding="utf-8")
         return [filepath]
 
 
-def _filename_from_url(url: str) -> str:
-    """Extract a clean filename from a sitemap URL."""
+def _base_filename_from_url(url: str) -> str:
+    """Extract a clean base filename from a sitemap URL."""
     parsed = urlparse(url)
     name = Path(parsed.path).name
     # Strip .gz extension since we decompress
     if name.endswith(".gz"):
         name = name[:-3]
     return name or "sitemap.xml"
+
+
+def _unique_filename(url: str, used_names: dict[str, int]) -> str:
+    """Generate a unique filename, appending a counter for duplicates."""
+    base = _base_filename_from_url(url)
+    if base not in used_names:
+        used_names[base] = 1
+        return base
+    count = used_names[base]
+    used_names[base] = count + 1
+    stem, ext = base.rsplit(".", 1) if "." in base else (base, "xml")
+    return f"{stem}-{count}.{ext}"

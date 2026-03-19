@@ -20,11 +20,13 @@ def test_count_sections_level_1():
     assert counts["/"] == 1  # homepage
 
 
-def test_count_sections_level_3():
-    counts = count_sections(SAMPLE_URLS, max_depth=3)
-    assert counts["/products/shoes/running"] == 1
+def test_count_sections_level_4():
+    urls = SAMPLE_URLS + ["https://www.example.com/products/shoes/running/trail"]
+    counts = count_sections(urls, max_depth=4)
+    assert counts["/products/shoes/running"] == 2  # running + trail
+    assert counts["/products/shoes/running/trail"] == 1
     assert counts["/products/shoes/casual"] == 1
-    assert counts["/products/shoes"] == 3  # shoes + running + casual
+    assert counts["/products/shoes"] == 4  # shoes + running + casual + trail
     assert counts["/blog/2024"] == 2
 
 
@@ -33,3 +35,4 @@ def test_generate_report_contains_total():
     assert "8" in report  # total URLs
     assert "example.com" in report
     assert "/products" in report
+    assert "up to 4 levels" in report

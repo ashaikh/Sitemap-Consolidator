@@ -5,7 +5,7 @@ from datetime import date
 from urllib.parse import urlparse
 
 
-def count_sections(urls: list[str], max_depth: int = 3) -> dict[str, int]:
+def count_sections(urls: list[str], max_depth: int = 4) -> dict[str, int]:
     """Count URLs by path section up to max_depth levels.
 
     Each URL contributes to every level of its path hierarchy.
@@ -77,8 +77,8 @@ def generate_report(urls: list[str], site_name: str) -> str:
         pct = (root_count / total) * 100
         lines.append(f"| `/` (root) | {root_count:,} | {pct:.1f}% |")
 
-    # Detailed breakdown (levels 2-3)
-    lines.extend(["", "## Detailed Breakdown (up to 3 levels)", ""])
+    # Detailed breakdown (levels 2-4)
+    lines.extend(["", "## Detailed Breakdown (up to 4 levels)", ""])
 
     for section, _ in level_1_sorted:
         # Find all sub-sections under this top-level

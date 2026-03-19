@@ -1,0 +1,6 @@
+# Sitemap URLs — one per line
+# Lines starting with # are ignored
+# Usage: python run.py --sites sites.txt --output ./output
+
+https://www.finditparts.com/sitemap.xml
+https://www.aloyoga.com/sitemap.xml
