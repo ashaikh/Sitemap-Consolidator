@@ -26,12 +26,12 @@ def test_parse_args_with_options():
 
 
 def test_build_paths_structure():
-    paths = build_paths("https://www.finditparts.com/sitemap.xml", "/tmp/out", "2026-01-01")
-    assert str(paths["base"]).endswith("finditparts.com/2026-01-01")
+    paths = build_paths("https://www.example.com/sitemap.xml", "/tmp/out", "2026-01-01")
+    assert str(paths["base"]).endswith("example.com/2026-01-01")
     assert str(paths["originals"]).endswith("OriginalFiles")
     assert str(paths["merged_dir"]).endswith("MergedSitemap")
-    assert str(paths["merged_file"]).endswith("finditparts.com-2026-01-01.xml")
-    assert str(paths["report"]).endswith("finditparts.com-2026-01-01.md")
+    assert str(paths["merged_file"]).endswith("example.com-2026-01-01.xml")
+    assert str(paths["report"]).endswith("example.com-2026-01-01.md")
 
 
 def test_load_sites(tmp_path):

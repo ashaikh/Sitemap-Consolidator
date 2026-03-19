@@ -1,37 +1,30 @@
-"""Integration tests — require network access. Run with: pytest -m integration"""
+"""Integration tests — require network access. Run with: pytest -m integration
+
+Update the URLs below to test with real sites.
+"""
 import pytest
-from pathlib import Path
-from sitemap_downloader.cli import run
+from sitemap_downloader.cli import process_site
 
 pytestmark = pytest.mark.integration
 
+# Replace with real sitemap URLs to test
+TEST_SITES = [
+    "https://www.example.com/sitemap.xml",
+]
+
 
 @pytest.mark.integration
-def test_full_pipeline_finditparts(tmp_path):
-    run([
-        "https://www.finditparts.com/sitemap.xml",
-        "--output", str(tmp_path),
-        "--date", "2026-03-18",
-    ])
-    base = tmp_path / "finditparts.com" / "2026-03-18"
-    assert (base / "OriginalFiles").exists()
-    originals = list((base / "OriginalFiles").glob("*.xml"))
-    assert len(originals) >= 1
-    assert (base / "MergedSitemap" / "finditparts.com-2026-03-18.xml").exists()
-    assert (base / "MergedSitemap" / "finditparts.com-2026-03-18.md").exists()
+@pytest.mark.parametrize("sitemap_url", TEST_SITES)
+def test_full_pipeline(tmp_path, sitemap_url):
+    from urllib.parse import urlparse
 
-    # Check report has content
-    report = (base / "MergedSitemap" / "finditparts.com-2026-03-18.md").read_text()
+    site_name = urlparse(sitemap_url).netloc.replace("www.", "")
+    process_site(sitemap_url, str(tmp_path), "2026-01-01")
+
+    base = tmp_path / site_name / "2026-01-01"
+    assert (base / "OriginalFiles.tar.gz").exists()
+    assert (base / "MergedSitemap" / f"{site_name}-2026-01-01.xml").exists()
+    assert (base / "MergedSitemap" / f"{site_name}-2026-01-01.md").exists()
+
+    report = (base / "MergedSitemap" / f"{site_name}-2026-01-01.md").read_text()
     assert "Total URLs" in report
-
-
-@pytest.mark.integration
-def test_full_pipeline_aloyoga(tmp_path):
-    run([
-        "https://www.aloyoga.com/sitemap.xml",
-        "--output", str(tmp_path),
-        "--date", "2026-03-18",
-    ])
-    base = tmp_path / "aloyoga.com" / "2026-03-18"
-    assert (base / "MergedSitemap" / "aloyoga.com-2026-03-18.xml").exists()
-    assert (base / "MergedSitemap" / "aloyoga.com-2026-03-18.md").exists()
