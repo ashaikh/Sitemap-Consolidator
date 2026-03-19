@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
 USER_AGENT = "SitemapDownloader/0.1 (+https://github.com/sitemap-downloader)"
@@ -35,9 +37,21 @@ def decompress_if_gzip(content: bytes) -> str:
     return content.decode("utf-8")
 
 
+def _session() -> requests.Session:
+    """Create a requests session with retry logic."""
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers["User-Agent"] = USER_AGENT
+    return session
+
+
 def fetch_url(url: str) -> bytes:
     """Fetch a URL and return raw bytes."""
-    resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+    session = _session()
+    resp = session.get(url, timeout=30)
     resp.raise_for_status()
     return resp.content
 
@@ -62,8 +76,10 @@ def download_sitemaps(sitemap_url: str, output_dir: Path) -> list[Path]:
         index_path = output_dir / _filename_from_url(sitemap_url)
         index_path.write_text(xml_str, encoding="utf-8")
 
+        print(f"  Found sitemap index with {len(sub_urls)} sub-sitemaps")
         downloaded = []
-        for url in sub_urls:
+        for i, url in enumerate(sub_urls, 1):
+            print(f"  Downloading [{i}/{len(sub_urls)}]: {url.split('/')[-1]}")
             try:
                 downloaded.extend(download_sitemaps(url, output_dir))
             except Exception as e:
