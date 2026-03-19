@@ -1,3 +1,4 @@
+from tests.conftest import SAMPLE_SITEMAP_HTTPS_NS
 from sitemap_downloader.merger import extract_urls_from_file, merge_sitemaps
 
 
@@ -5,6 +6,14 @@ def test_extract_urls_from_file(sample_original_files):
     urls = extract_urls_from_file(sample_original_files / "sitemap-products.xml")
     assert len(urls) == 3
     assert "https://www.example.com/products/shoes" in urls
+
+
+def test_extract_urls_from_https_namespace(tmp_path):
+    f = tmp_path / "sitemap.xml"
+    f.write_text(SAMPLE_SITEMAP_HTTPS_NS)
+    urls = extract_urls_from_file(f)
+    assert len(urls) == 2
+    assert "https://www.example.com/en-sg" in urls
 
 
 def test_merge_sitemaps_creates_valid_xml(sample_original_files, tmp_path):

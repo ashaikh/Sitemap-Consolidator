@@ -3,14 +3,22 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+SITEMAP_NS_HTTP = "http://www.sitemaps.org/schemas/sitemap/0.9"
+SITEMAP_NS_HTTPS = "https://www.sitemaps.org/schemas/sitemap/0.9"
+
+
+def _detect_ns(root: ET.Element) -> str:
+    """Detect the sitemap namespace from the root element (http or https)."""
+    if root.tag.startswith(f"{{{SITEMAP_NS_HTTPS}}}"):
+        return SITEMAP_NS_HTTPS
+    return SITEMAP_NS_HTTP
 
 
 def extract_urls_from_file(filepath: Path) -> list[str]:
     """Extract all <loc> URLs from a sitemap XML file."""
     tree = ET.parse(filepath)
     root = tree.getroot()
-    ns = {"sm": SITEMAP_NS}
+    ns = {"sm": _detect_ns(root)}
     return [loc.text for loc in root.findall(".//sm:url/sm:loc", ns) if loc.text]
 
 
@@ -36,12 +44,12 @@ def merge_sitemaps(sitemap_files: list[Path], output_path: Path) -> int:
             seen.add(url)
             unique_urls.append(url)
 
-    # Build merged XML
-    ET.register_namespace("", SITEMAP_NS)
-    urlset = ET.Element(f"{{{SITEMAP_NS}}}urlset")
+    # Build merged XML (always output with standard http namespace)
+    ET.register_namespace("", SITEMAP_NS_HTTP)
+    urlset = ET.Element(f"{{{SITEMAP_NS_HTTP}}}urlset")
     for url in unique_urls:
-        url_elem = ET.SubElement(urlset, f"{{{SITEMAP_NS}}}url")
-        loc_elem = ET.SubElement(url_elem, f"{{{SITEMAP_NS}}}loc")
+        url_elem = ET.SubElement(urlset, f"{{{SITEMAP_NS_HTTP}}}url")
+        loc_elem = ET.SubElement(url_elem, f"{{{SITEMAP_NS_HTTP}}}loc")
         loc_elem.text = url
 
     tree = ET.ElementTree(urlset)

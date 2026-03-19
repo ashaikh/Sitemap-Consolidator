@@ -9,7 +9,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+SITEMAP_NS_HTTP = "http://www.sitemaps.org/schemas/sitemap/0.9"
+SITEMAP_NS_HTTPS = "https://www.sitemaps.org/schemas/sitemap/0.9"
 USER_AGENT = "SitemapDownloader/0.1 (+https://github.com/sitemap-downloader)"
 
 
@@ -23,10 +24,17 @@ def is_sitemap_index(xml_content: str) -> bool:
     return tag == "sitemapindex"
 
 
+def _detect_ns(root: ET.Element) -> str:
+    """Detect the sitemap namespace from the root element (http or https)."""
+    if root.tag.startswith(f"{{{SITEMAP_NS_HTTPS}}}"):
+        return SITEMAP_NS_HTTPS
+    return SITEMAP_NS_HTTP
+
+
 def parse_sitemap_index_urls(xml_content: str) -> list[str]:
     """Extract sitemap URLs from a sitemap index XML string."""
     root = ET.fromstring(xml_content)
-    ns = {"sm": SITEMAP_NS}
+    ns = {"sm": _detect_ns(root)}
     return [loc.text for loc in root.findall(".//sm:sitemap/sm:loc", ns) if loc.text]
 
 

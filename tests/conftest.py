@@ -43,6 +43,15 @@ def sample_sitemap_2():
     return SAMPLE_SITEMAP_2
 
 
+SITEMAP_NS_HTTPS = "https://www.sitemaps.org/schemas/sitemap/0.9"
+
+SAMPLE_SITEMAP_HTTPS_NS = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="{SITEMAP_NS_HTTPS}">
+  <url><loc>https://www.example.com/en-sg</loc></url>
+  <url><loc>https://www.example.com/en-sg/products</loc></url>
+</urlset>"""
+
+
 @pytest.fixture
 def sample_original_files(tmp_path, sample_sitemap_1, sample_sitemap_2):
     """Write two sample sitemap files to a tmp dir, return the dir path."""
