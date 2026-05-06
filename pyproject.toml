@@ -1,4 +1,19 @@
+[project]
+name = "sitemap-downloader"
+version = "0.1.0"
+description = "Download, merge, and analyze website sitemaps."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+stealth = [
+    "playwright>=1.45.0",
+]
+
 [tool.pytest.ini_options]
 markers = [
     "integration: tests that require network access (deselect with '-m not integration')",
+    "slow: tests that take a long time (deselect with '-m \"not slow\"')",
 ]

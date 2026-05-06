@@ -12,7 +12,29 @@ from urllib3.util.retry import Retry
 
 SITEMAP_NS_HTTP = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITEMAP_NS_HTTPS = "https://www.sitemaps.org/schemas/sitemap/0.9"
-USER_AGENT = "SitemapDownloader/0.1 (+https://github.com/sitemap-downloader)"
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+ACCEPT_HEADER = "application/xml,text/xml,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8"
+ACCEPT_LANGUAGE = "en-US,en;q=0.9"
+
+BLOCK_PATH_MARKERS = ("/blocked", "/captcha", "/challenge", "/px-captcha", "/distil_")
+BLOCK_BODY_MARKERS = (
+    b"Access Denied",
+    b"Pardon Our Interruption",
+    b"PerimeterX",
+    b"px-captcha",
+    b"Just a moment",  # Cloudflare
+    b"Attention Required",
+    b"DataDome",
+    b"Request unsuccessful. Incapsula",
+)
+
+
+class BlockedError(Exception):
+    """Raised when fetch is blocked by a bot-detection layer."""
 
 
 def is_sitemap_index(xml_content: str) -> bool:
@@ -53,15 +75,49 @@ def _session() -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    session.headers["User-Agent"] = USER_AGENT
+    session.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept": ACCEPT_HEADER,
+        "Accept-Language": ACCEPT_LANGUAGE,
+        "Accept-Encoding": "gzip, deflate, br",
+    })
     return session
 
 
+def _detect_block(resp) -> None:
+    """Inspect a response for bot-wall signals. Raise BlockedError if blocked."""
+    if resp.status_code in (403, 429):
+        raise BlockedError(f"HTTP {resp.status_code} from {resp.url}")
+
+    for hop in resp.history or []:
+        loc = (hop.headers or {}).get("location", "") if hasattr(hop, "headers") else ""
+        if any(m in loc for m in BLOCK_PATH_MARKERS):
+            raise BlockedError(f"redirect to block path: {loc}")
+
+    final_path = urlparse(str(resp.url)).path
+    if any(m in final_path for m in BLOCK_PATH_MARKERS):
+        raise BlockedError(f"final URL on block path: {resp.url}")
+
+    ctype = (resp.headers or {}).get("content-type", "").lower()
+    body = resp.content or b""
+    expecting_xml = ".xml" in urlparse(str(resp.url)).path.lower()
+    looks_html = "html" in ctype or body.lstrip()[:6].lower() == b"<html>" or body.lstrip()[:5].lower() == b"<!doc"
+
+    if expecting_xml and looks_html:
+        raise BlockedError(f"got HTML when expecting XML at {resp.url}")
+
+    for marker in BLOCK_BODY_MARKERS:
+        if marker in body[:4096]:
+            raise BlockedError(f"block marker '{marker.decode(errors='replace')}' in body of {resp.url}")
+
+
 def fetch_url(url: str) -> bytes:
-    """Fetch a URL and return raw bytes."""
+    """Fetch a URL and return raw bytes. Raises BlockedError on bot-wall."""
     session = _session()
     resp = session.get(url, timeout=30)
-    resp.raise_for_status()
+    if resp.status_code not in (403, 429):
+        resp.raise_for_status()
+    _detect_block(resp)
     return resp.content
 
 
@@ -78,6 +134,7 @@ def download_sitemaps(
     output_dir: Path,
     errors: list[dict] | None = None,
     _used_names: dict[str, int] | None = None,
+    fetcher=None,
 ) -> list[Path]:
     """Download all sitemaps from a URL. Handles sitemap indexes recursively.
 
@@ -86,6 +143,7 @@ def download_sitemaps(
         output_dir: Directory to save downloaded files (OriginalFiles/)
         errors: List to collect error dicts (mutated in place)
         _used_names: Internal tracker to avoid filename collisions across locales
+        fetcher: Object with .fetch(url) -> bytes. Default: plain requests via fetch_url.
 
     Returns:
         List of paths to downloaded sitemap files
@@ -96,7 +154,7 @@ def download_sitemaps(
         _used_names = {}
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    content = fetch_url(sitemap_url)
+    content = fetcher.fetch(sitemap_url) if fetcher is not None else fetch_url(sitemap_url)
     xml_str = decompress_if_gzip(content)
     _validate_xml(xml_str, sitemap_url)
 
@@ -111,7 +169,7 @@ def download_sitemaps(
         for i, url in enumerate(sub_urls, 1):
             print(f"  Downloading [{i}/{len(sub_urls)}]: {url.split('/')[-1]}")
             try:
-                downloaded.extend(download_sitemaps(url, output_dir, errors, _used_names))
+                downloaded.extend(download_sitemaps(url, output_dir, errors, _used_names, fetcher))
             except Exception as e:
                 error_entry = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),

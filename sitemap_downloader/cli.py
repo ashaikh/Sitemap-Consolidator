@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 from sitemap_downloader.downloader import download_sitemaps
 from sitemap_downloader.merger import merge_sitemaps, extract_urls_from_file
 from sitemap_downloader.analyzer import generate_report
+from sitemap_downloader.fetchers import build_default_fetcher
+from sitemap_downloader.robots import discover_sitemaps
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -38,9 +40,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Date for folder naming (default: today, format: YYYY-MM-DD)",
         default=None,
     )
+    parser.add_argument(
+        "--from-robots",
+        help="Discover sitemaps from <site>/robots.txt instead of supplying sitemap URL directly",
+        default=None,
+    )
+    parser.add_argument(
+        "--stealth",
+        action="store_true",
+        help="Force Playwright stealth fetcher from start (skip requests). Slower, for bot-walled sites.",
+    )
+    parser.add_argument(
+        "--stealth-headful",
+        action="store_true",
+        help="Run stealth Playwright with visible browser (helps bypass tougher challenges).",
+    )
     args = parser.parse_args(argv)
-    if not args.url and not args.sites:
-        parser.error("Provide a URL or --sites file")
+    if not args.url and not args.sites and not args.from_robots:
+        parser.error("Provide a URL, --sites file, or --from-robots URL")
     return args
 
 
@@ -104,56 +121,118 @@ def load_sites(sites_path: str) -> list[str]:
     return urls
 
 
-def process_site(sitemap_url: str, output_base: str | None, date_str: str | None) -> None:
-    """Run the full pipeline for a single site."""
-    paths = build_paths(sitemap_url, output_base, date_str)
+def process_site(
+    sitemap_url: str,
+    output_base: str | None,
+    date_str: str | None,
+    fetcher=None,
+) -> None:
+    """Run the full pipeline for a single sitemap root URL."""
+    process_site_aggregate([sitemap_url], output_base, date_str, fetcher)
 
-    print(f"\nDownloading sitemaps from {sitemap_url}...")
+
+def process_site_aggregate(
+    sitemap_urls: list[str],
+    output_base: str | None,
+    date_str: str | None,
+    fetcher=None,
+) -> None:
+    """Run the full pipeline for one site with one or more sitemap roots.
+
+    All roots must share the same hostname. Outputs go into a single
+    OriginalFiles dir → merged into one master XML → one report → one tarball.
+    Errors from any root are logged together. Filename collisions across roots
+    are handled by the existing _used_names tracker.
+    """
+    if not sitemap_urls:
+        return
+
+    paths = build_paths(sitemap_urls[0], output_base, date_str)
+    print(f"\nProcessing {len(sitemap_urls)} sitemap root(s) for {paths['site_name']}")
     print(f"Output: {paths['base']}")
 
-    # Step 1: Download
     errors: list[dict] = []
-    downloaded = download_sitemaps(sitemap_url, paths["originals"], errors)
-    print(f"Downloaded {len(downloaded)} sitemap file(s)")
+    used_names: dict[str, int] = {}
+    all_downloaded: list = []
 
+    for i, root in enumerate(sitemap_urls, 1):
+        print(f"\n[{i}/{len(sitemap_urls)}] {root}")
+        try:
+            from sitemap_downloader.downloader import download_sitemaps as _dl
+            files = _dl(root, paths["originals"], errors, _used_names=used_names, fetcher=fetcher)
+            all_downloaded.extend(files)
+        except Exception as e:
+            from datetime import datetime, timezone
+            errors.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "url": root,
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "parent_index": None,
+            })
+            print(f"  ERROR on root {root}: {e}")
+
+    print(f"\nDownloaded {len(all_downloaded)} sitemap file(s) total")
     if errors:
         write_errors(errors, paths["errors"])
         print(f"WARNING: {len(errors)} error(s) logged to {paths['errors']}")
 
-    if not downloaded:
+    if not all_downloaded:
         print("ERROR: No sitemaps downloaded successfully. Skipping merge/analysis.")
         return
 
-    # Step 2: Merge
-    total = merge_sitemaps(downloaded, paths["merged_file"])
+    total = merge_sitemaps(all_downloaded, paths["merged_file"])
     print(f"Merged into {paths['merged_file']} ({total:,} URLs)")
 
-    # Step 3: Analyze (read from merged file so counts match the deduplicated sitemap)
     all_urls = extract_urls_from_file(paths["merged_file"])
     report = generate_report(all_urls, paths["site_name"])
     paths["report"].write_text(report, encoding="utf-8")
     print(f"Analysis saved to {paths['report']}")
 
-    # Step 4: Compress originals and clean up
     archive = compress_originals(paths["originals"])
     print(f"Compressed originals to {archive}")
 
     print("Done!")
 
 
+def _group_by_host(urls: list[str]) -> dict[str, list[str]]:
+    """Group URLs by hostname (www-stripped) preserving order."""
+    groups: dict[str, list[str]] = {}
+    for u in urls:
+        host = urlparse(u).netloc.replace("www.", "")
+        groups.setdefault(host, []).append(u)
+    return groups
+
+
 def run(argv: list[str] | None = None) -> None:
     """Main entry point — download, merge, analyze."""
     args = parse_args(argv)
 
-    urls = []
+    urls: list[str] = []
     if args.sites:
-        urls = load_sites(args.sites)
+        urls.extend(load_sites(args.sites))
         print(f"Loaded {len(urls)} site(s) from {args.sites}")
     if args.url:
         urls.append(args.url)
+    if args.from_robots:
+        print(f"Discovering sitemaps from {args.from_robots}/robots.txt ...")
+        discovered = discover_sitemaps(args.from_robots)
+        print(f"Found {len(discovered)} sitemap(s) in robots.txt")
+        urls.extend(discovered)
 
-    for url in urls:
-        process_site(url, args.output, args.date)
+    fetcher = build_default_fetcher(
+        stealth=args.stealth,
+        headless=not args.stealth_headful,
+    )
+    try:
+        # Group by host so multiple sitemap roots for the same domain
+        # (e.g. all 34 from --from-robots) merge into one output.
+        groups = _group_by_host(urls)
+        for host, group_urls in groups.items():
+            print(f"\n=== {host}: {len(group_urls)} sitemap root(s) ===")
+            process_site_aggregate(group_urls, args.output, args.date, fetcher=fetcher)
+    finally:
+        fetcher.close()
 
 
 if __name__ == "__main__":

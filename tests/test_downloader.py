@@ -88,6 +88,64 @@ def test_validate_xml_rejects_non_sitemap():
         _validate_xml("<html><body>Not a sitemap</body></html>", "http://example.com")
 
 
+def test_blocked_error_on_403():
+    import pytest
+    from unittest.mock import MagicMock
+    from sitemap_downloader.downloader import _detect_block, BlockedError
+
+    resp = MagicMock(status_code=403, url="https://walmart.com/sitemap.xml",
+                     history=[], headers={"content-type": "text/html"},
+                     content=b"<html>Access Denied</html>")
+    with pytest.raises(BlockedError):
+        _detect_block(resp)
+
+
+def test_blocked_error_on_redirect_to_blocked_path():
+    import pytest
+    from unittest.mock import MagicMock
+    from sitemap_downloader.downloader import _detect_block, BlockedError
+
+    hop = MagicMock(status_code=307,
+                    headers={"location": "/blocked?url=foo&uuid=bar"})
+    resp = MagicMock(status_code=200, url="https://walmart.com/blocked",
+                     history=[hop], headers={"content-type": "text/plain"},
+                     content=b"")
+    with pytest.raises(BlockedError, match="redirect"):
+        _detect_block(resp)
+
+
+def test_blocked_error_on_html_when_xml_expected():
+    import pytest
+    from unittest.mock import MagicMock
+    from sitemap_downloader.downloader import _detect_block, BlockedError
+
+    resp = MagicMock(status_code=200, url="https://x.com/sitemap.xml",
+                     history=[], headers={"content-type": "text/html; charset=utf-8"},
+                     content=b"<html><body>Pardon Our Interruption</body></html>")
+    with pytest.raises(BlockedError):
+        _detect_block(resp)
+
+
+def test_block_detect_passes_normal_xml():
+    from unittest.mock import MagicMock
+    from sitemap_downloader.downloader import _detect_block
+
+    resp = MagicMock(status_code=200, url="https://x.com/sitemap.xml",
+                     history=[], headers={"content-type": "application/xml"},
+                     content=b"<?xml version='1.0'?><urlset/>")
+    _detect_block(resp)  # should not raise
+
+
+def test_session_uses_chrome_ua_and_xml_accept():
+    from sitemap_downloader.downloader import _session
+
+    s = _session()
+    ua = s.headers.get("User-Agent", "")
+    assert "Chrome/" in ua and "Mozilla/" in ua, f"expected Chrome UA, got: {ua}"
+    accept = s.headers.get("Accept", "")
+    assert "xml" in accept.lower(), f"expected XML in Accept, got: {accept}"
+
+
 def test_unique_filename_avoids_collisions():
     from sitemap_downloader.downloader import _unique_filename
 

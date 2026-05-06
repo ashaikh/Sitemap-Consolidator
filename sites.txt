@@ -1,5 +1,13 @@
 # Sitemap URLs — one per line
 # Lines starting with # are ignored
 # Usage: python run.py --sites sites.txt --output ./output
+#
+# For bot-walled sites (Walmart, Nike, etc.) use:
+#   pip install -e .[stealth] && playwright install chromium
+#   python run.py --from-robots https://www.walmart.com --output ./output
+# Auto-fallback to stealth Playwright kicks in when blocked.
 
 https://www.example.com/sitemap.xml
+
+# Bot-walled — uncomment to test stealth fallback (slow):
+# https://www.walmart.com/sitemap_category.xml
